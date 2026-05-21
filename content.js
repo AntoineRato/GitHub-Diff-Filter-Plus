@@ -25,6 +25,12 @@
   const LABEL_SELECTOR = '[data-component="ActionList.Item.Label"]';
   const ENHANCED_ATTR = 'data-gdfp-enhanced';
 
+  function getSettings() {
+    return new Promise((resolve) => {
+      chrome.storage.sync.get({ rememberLast: false, lastSelection: [] }, resolve);
+    });
+  }
+
   function enhance(menu) {
     if (menu.hasAttribute(ENHANCED_ATTR)) return;
     menu.setAttribute(ENHANCED_ATTR, '1');
@@ -99,7 +105,7 @@
     if (action === 'apply') applyFilters(menu);
   }
 
-  function applyFilters(menu) {
+  async function applyFilters(menu) {
     const items = menu.querySelectorAll(`:scope > ${ITEM_SELECTOR}`);
     const selected = [];
     for (const item of items) {
@@ -108,13 +114,22 @@
       if (label && label.textContent) selected.push(label.textContent.trim());
     }
 
+    const hasRealFilter = selected.length > 0 && selected.length < items.length;
+
     const url = new URL(location.href);
     url.searchParams.delete('file-filters[]');
     // If everything is selected (or nothing), drop the param entirely so the
     // URL stays clean and we don't fight the default state.
-    if (selected.length > 0 && selected.length < items.length) {
+    if (hasRealFilter) {
       for (const ext of selected) url.searchParams.append('file-filters[]', ext);
     }
+
+    // Persist the selection for next time, if the user opted in.
+    const { rememberLast } = await getSettings();
+    if (rememberLast) {
+      chrome.storage.sync.set({ lastSelection: hasRealFilter ? selected : [] });
+    }
+
     location.href = url.toString();
   }
 
@@ -134,7 +149,37 @@
     }).observe(portal, { childList: true, subtree: true });
   }
 
+  async function maybeApplyRemembered(reason) {
+    const dbg = (...args) => console.log('[Diff Filter Plus]', `(${reason})`, ...args);
+    // Auto-apply only on the Files changed tab. GitHub uses /changes
+    // for that tab (some older URLs may still be /files).
+    if (!/\/pull\/\d+\/(?:changes|files)\/?$/.test(location.pathname)) {
+      dbg('skip: not on /changes', location.pathname);
+      return;
+    }
+    const url = new URL(location.href);
+    // Don't override a URL that already specifies its own filter.
+    if (url.searchParams.has('file-filters[]')) {
+      dbg('skip: URL already has filters');
+      return;
+    }
+
+    const { rememberLast, lastSelection } = await getSettings();
+    dbg('settings:', { rememberLast, lastSelection });
+    if (!rememberLast) { dbg('skip: rememberLast off'); return; }
+    if (!Array.isArray(lastSelection) || lastSelection.length === 0) {
+      dbg('skip: no saved selection');
+      return;
+    }
+
+    for (const ext of lastSelection) url.searchParams.append('file-filters[]', ext);
+    dbg('applying:', lastSelection, '→', url.toString());
+    // replace() keeps the back/forward history clean.
+    location.replace(url.toString());
+  }
+
   function start() {
+    maybeApplyRemembered('start');
     const portal = document.getElementById(PORTAL_ID);
     if (portal) { watch(portal); return; }
     // Portal not yet mounted: wait for it, then disconnect.
@@ -152,4 +197,14 @@
   } else {
     start();
   }
+
+  // GitHub uses SPA navigation between PR tabs. The Navigation API
+  // (Chrome 102+) catches every soft navigation regardless of which
+  // library powers it (Turbo, PJAX, GitHub's own router…).
+  if (window.navigation) {
+    navigation.addEventListener('navigatesuccess', () => maybeApplyRemembered('navigatesuccess'));
+  }
+  // Fallback events in case the Navigation API misses a case.
+  document.addEventListener('turbo:load', () => maybeApplyRemembered('turbo:load'));
+  document.addEventListener('pjax:end', () => maybeApplyRemembered('pjax:end'));
 })();
