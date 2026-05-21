@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "GitHub Diff Filter Plus",
+  "version": "0.1.0",
+  "description": "Multi-select file type filters for GitHub PRs. Apply all at once.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "GitHub Diff Filter Plus"
+  },
+  "permissions": ["storage"],
+  "host_permissions": ["https://github.com/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://github.com/*/pull/*"],
+      "js": ["content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

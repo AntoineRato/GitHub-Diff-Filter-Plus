@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>GitHub Diff Filter Plus</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Diff Filter Plus</h1>
+    </header>
+    <main>
+      <label class="row">
+        <input type="checkbox" id="rememberLast" />
+        <span>
+          <strong>Remember last selection</strong>
+          <small
+            >Reuse the last filter selection across PRs. Off by default.
+            Keeping it off prevents accidentally hiding files during
+            review.</small
+          >
+        </span>
+      </label>
+    </main>
+    <footer>
+      <span>v0.1.0</span>
+    </footer>
+    <script src="popup.js"></script>
+  </body>
+</html>
