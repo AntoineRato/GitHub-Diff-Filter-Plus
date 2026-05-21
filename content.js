@@ -2,19 +2,22 @@
 // Runs on https://github.com/*/pull/*
 //
 // Goal: replace the native "File extensions" dropdown's instant-apply
-// behaviour with multi-select + a single Apply button.
+// behaviour with multi-select + a single Apply button, and optionally
+// re-apply the user's last selection when they come back to the Files
+// changed tab.
 //
 // Design notes (kept light on purpose):
 //   * We only observe #__primerPortalRoot__ (where Primer mounts overlays),
-//     never the whole document. The portal is data-turbo-permanent so a
-//     single observer survives SPA navigation.
-//   * The native menu is destroyed and recreated each time the user opens
-//     it, so our injected DOM and event listeners are GC'd with it. We
-//     don't track instances ourselves.
-//   * Click handling uses one delegated listener at the menu root rather
-//     than one per item.
-//   * Selected extensions are read from aria-checked at Apply time, so we
-//     never cache state that could drift.
+//     never the whole document.
+//   * The native menu is destroyed and recreated each time it opens, so
+//     our injected DOM and listeners are GC'd with it.
+//   * Settings are cached in memory and kept in sync via
+//     chrome.storage.onChanged so the click interceptor can decide
+//     synchronously.
+//   * Remember-last works primarily by rewriting the href of PR tab links
+//     before Turbo navigates: one SPA navigation lands directly on the
+//     filtered URL — no double-load, no flash. A fallback runs on page
+//     load events for the cases where the user did not click a link.
 
 (() => {
   'use strict';
@@ -24,11 +27,49 @@
   const ITEM_SELECTOR = 'li[role="menuitemcheckbox"]';
   const LABEL_SELECTOR = '[data-component="ActionList.Item.Label"]';
   const ENHANCED_ATTR = 'data-gdfp-enhanced';
+  const FILES_PATH = /\/pull\/\d+\/(?:changes|files)\/?$/;
+  const FILTER_PARAM = 'file-filters[]';
 
-  function getSettings() {
-    return new Promise((resolve) => {
-      chrome.storage.sync.get({ rememberLast: false, lastSelection: [] }, resolve);
-    });
+  let settings = { rememberLast: false, lastSelection: [] };
+
+  function refreshSettings() {
+    chrome.storage.sync.get(settings, (loaded) => { settings = loaded; });
+  }
+  refreshSettings();
+  chrome.storage.onChanged.addListener((_changes, area) => {
+    if (area === 'sync') refreshSettings();
+  });
+
+  function shouldAutoApply(url) {
+    if (url.origin !== location.origin) return false;
+    if (!FILES_PATH.test(url.pathname)) return false;
+    if (url.searchParams.has(FILTER_PARAM)) return false;
+    if (!settings.rememberLast) return false;
+    if (!Array.isArray(settings.lastSelection) || settings.lastSelection.length === 0) return false;
+    return true;
+  }
+
+  function addFilters(url) {
+    for (const ext of settings.lastSelection) {
+      url.searchParams.append(FILTER_PARAM, ext);
+    }
+  }
+
+  function navigate(href, action /* 'advance' | 'replace' */) {
+    if (action === 'replace') location.replace(href);
+    else location.href = href;
+  }
+
+  // Visual feedback during the hard reload. Adds a thin top progress bar
+  // that lives only on the outgoing page (the new page won't have it,
+  // since the script runs fresh there). Helps mask the "frozen page"
+  // perception between click and the new page rendering.
+  function showLoadingBar() {
+    if (!document.body) return;
+    if (document.getElementById('gdfp-loading-bar')) return;
+    const bar = document.createElement('div');
+    bar.id = 'gdfp-loading-bar';
+    document.body.appendChild(bar);
   }
 
   function enhance(menu) {
@@ -105,7 +146,7 @@
     if (action === 'apply') applyFilters(menu);
   }
 
-  async function applyFilters(menu) {
+  function applyFilters(menu) {
     const items = menu.querySelectorAll(`:scope > ${ITEM_SELECTOR}`);
     const selected = [];
     for (const item of items) {
@@ -117,20 +158,21 @@
     const hasRealFilter = selected.length > 0 && selected.length < items.length;
 
     const url = new URL(location.href);
-    url.searchParams.delete('file-filters[]');
+    url.searchParams.delete(FILTER_PARAM);
     // If everything is selected (or nothing), drop the param entirely so the
     // URL stays clean and we don't fight the default state.
     if (hasRealFilter) {
-      for (const ext of selected) url.searchParams.append('file-filters[]', ext);
+      for (const ext of selected) url.searchParams.append(FILTER_PARAM, ext);
     }
 
-    // Persist the selection for next time, if the user opted in.
-    const { rememberLast } = await getSettings();
-    if (rememberLast) {
-      chrome.storage.sync.set({ lastSelection: hasRealFilter ? selected : [] });
+    if (settings.rememberLast) {
+      const toSave = hasRealFilter ? selected : [];
+      settings.lastSelection = toSave;
+      chrome.storage.sync.set({ lastSelection: toSave });
     }
 
-    location.href = url.toString();
+    showLoadingBar();
+    navigate(url.toString(), 'advance');
   }
 
   function scan(root) {
@@ -149,40 +191,47 @@
     }).observe(portal, { childList: true, subtree: true });
   }
 
-  async function maybeApplyRemembered(reason) {
-    const dbg = (...args) => console.log('[Diff Filter Plus]', `(${reason})`, ...args);
-    // Auto-apply only on the Files changed tab. GitHub uses /changes
-    // for that tab (some older URLs may still be /files).
-    if (!/\/pull\/\d+\/(?:changes|files)\/?$/.test(location.pathname)) {
-      dbg('skip: not on /changes', location.pathname);
-      return;
-    }
+  // Intercept link clicks BEFORE Next.js can. Registered on window in
+  // capture phase, ideally at document_start so we beat GitHub's own
+  // click handlers. stopImmediatePropagation prevents Next.js from
+  // starting its (unfiltered) SPA navigation in parallel. We then trigger
+  // a hard navigation to the filtered URL ourselves. The flash is
+  // unavoidable (we can't access Next.js' internal router), but at least
+  // the user no longer sees an unfiltered intermediate render.
+  function interceptClick(e) {
+    if (e.button !== 0) return;
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    if (e.defaultPrevented) return;
+    const link = e.target.closest?.('a[href]');
+    if (!link) return;
+    let dest;
+    try { dest = new URL(link.href, location.href); } catch { return; }
+    if (!shouldAutoApply(dest)) return;
+
+    addFilters(dest);
+    console.log('[Diff Filter Plus] click intercepted → hard nav to:', dest.toString());
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    showLoadingBar();
+    location.href = dest.toString();
+  }
+
+  // Fallback for navigations that didn't go through a link click
+  // (browser back/forward, URL bar entry, history pop…).
+  function maybeApplyRemembered(reason) {
     const url = new URL(location.href);
-    // Don't override a URL that already specifies its own filter.
-    if (url.searchParams.has('file-filters[]')) {
-      dbg('skip: URL already has filters');
-      return;
-    }
-
-    const { rememberLast, lastSelection } = await getSettings();
-    dbg('settings:', { rememberLast, lastSelection });
-    if (!rememberLast) { dbg('skip: rememberLast off'); return; }
-    if (!Array.isArray(lastSelection) || lastSelection.length === 0) {
-      dbg('skip: no saved selection');
-      return;
-    }
-
-    for (const ext of lastSelection) url.searchParams.append('file-filters[]', ext);
-    dbg('applying:', lastSelection, '→', url.toString());
-    // replace() keeps the back/forward history clean.
-    location.replace(url.toString());
+    const apply = shouldAutoApply(url);
+    console.log('[Diff Filter Plus] fallback', reason || '', { pathname: url.pathname, willApply: apply, settings });
+    if (!apply) return;
+    addFilters(url);
+    showLoadingBar();
+    navigate(url.toString(), 'replace');
   }
 
   function start() {
     maybeApplyRemembered('start');
     const portal = document.getElementById(PORTAL_ID);
     if (portal) { watch(portal); return; }
-    // Portal not yet mounted: wait for it, then disconnect.
     const wait = new MutationObserver(() => {
       const p = document.getElementById(PORTAL_ID);
       if (!p) return;
@@ -192,19 +241,18 @@
     wait.observe(document.body, { childList: true, subtree: true });
   }
 
+  // Register the click interceptor as early as possible, before
+  // GitHub's bundles register theirs. Window + capture beats anything
+  // attached lower in the tree.
+  window.addEventListener('click', interceptClick, true);
+
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', start, { once: true });
   } else {
     start();
   }
 
-  // GitHub uses SPA navigation between PR tabs. The Navigation API
-  // (Chrome 102+) catches every soft navigation regardless of which
-  // library powers it (Turbo, PJAX, GitHub's own router…).
-  if (window.navigation) {
-    navigation.addEventListener('navigatesuccess', () => maybeApplyRemembered('navigatesuccess'));
-  }
-  // Fallback events in case the Navigation API misses a case.
+  // Fallback for navigations that bypass the click handler (browser
+  // back/forward, URL-bar entry, programmatic JS navigation).
   document.addEventListener('turbo:load', () => maybeApplyRemembered('turbo:load'));
-  document.addEventListener('pjax:end', () => maybeApplyRemembered('pjax:end'));
 })();

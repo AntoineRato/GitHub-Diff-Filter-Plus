@@ -62,3 +62,36 @@ ul[aria-label="File extensions"] > li[role="menuitemcheckbox"][aria-checked="fal
 .gdfp-apply:active {
   background: var(--button-primary-bgColor-active, #187433);
 }
+
+/* Thin top loading bar shown during the brief delay between click and the
+   new page rendering. Fills from left to right (NProgress-style): fast at
+   the start for immediate feedback, slows down approaching the end,
+   capped just under 100% so it never looks "done" while the page is
+   still loading. */
+#gdfp-loading-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 3px;
+  background: transparent;
+  z-index: 2147483647;
+  pointer-events: none;
+  overflow: hidden;
+}
+#gdfp-loading-bar::after {
+  content: '';
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: #0076ff;
+  transform-origin: left;
+  transform: scaleX(0);
+  animation: gdfp-loading-fill 1.6s cubic-bezier(0.4, 0.1, 0.6, 0.9) forwards;
+}
+/* Smooth S-curve: a bit slow at the start, fluid through the middle, eases
+   out at the end. Capped just under 100% so it never looks "done" while
+   the page is still loading. */
+@keyframes gdfp-loading-fill {
+  to { transform: scaleX(0.9); }
+}
