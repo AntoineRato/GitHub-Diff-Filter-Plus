@@ -1,3 +1,64 @@
 /* GitHub Diff Filter Plus content script styles.
-   Injected into github.com PR pages. Styles for the enhanced dropdown will
-   live here once the markup is known. */
+   Scoped to the native "File extensions" menu so we don't leak styles
+   into the rest of the GitHub UI. */
+
+/* Hide Primer's native checkmark when our intercepted items are
+   unchecked. The check icon lives inside ActionList.Selection. */
+ul[aria-label="File extensions"] > li[role="menuitemcheckbox"][aria-checked="false"]
+  [data-component="ActionList.Selection"] svg {
+  visibility: hidden;
+}
+
+/* Header (Select all / Deselect all) and Footer (Apply) rows. */
+.gdfp-row {
+  display: flex;
+  gap: 6px;
+  padding: 6px 8px;
+  list-style: none;
+}
+.gdfp-header {
+  border-bottom: 1px solid var(--borderColor-muted, rgba(208, 215, 222, 0.48));
+  margin-bottom: 4px;
+}
+.gdfp-footer {
+  border-top: 1px solid var(--borderColor-muted, rgba(208, 215, 222, 0.48));
+  margin-top: 4px;
+}
+
+/* Buttons match Primer's default/primary look using its own CSS vars,
+   so dark/light mode follows the page automatically. */
+.gdfp-btn {
+  flex: 1;
+  font: inherit;
+  font-size: 12px;
+  line-height: 20px;
+  padding: 3px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--button-default-borderColor-rest, var(--borderColor-default, #d0d7de));
+  background: var(--button-default-bgColor-rest, transparent);
+  color: var(--button-default-fgColor-rest, var(--fgColor-default, inherit));
+  cursor: pointer;
+}
+.gdfp-btn:hover {
+  background: var(--button-default-bgColor-hover, var(--bgColor-muted, rgba(208, 215, 222, 0.24)));
+}
+.gdfp-btn:active {
+  background: var(--button-default-bgColor-active, var(--bgColor-muted, rgba(208, 215, 222, 0.32)));
+}
+.gdfp-btn:focus-visible {
+  outline: 2px solid var(--focus-outlineColor, #0969da);
+  outline-offset: -2px;
+}
+
+.gdfp-apply {
+  background: var(--button-primary-bgColor-rest, #1f883d);
+  color: var(--button-primary-fgColor-rest, #ffffff);
+  border-color: var(--button-primary-borderColor-rest, rgba(31, 35, 40, 0.15));
+  font-weight: 600;
+}
+.gdfp-apply:hover {
+  background: var(--button-primary-bgColor-hover, #1a7f37);
+}
+.gdfp-apply:active {
+  background: var(--button-primary-bgColor-active, #187433);
+}
