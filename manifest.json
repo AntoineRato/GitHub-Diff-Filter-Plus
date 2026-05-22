@@ -3,9 +3,20 @@
   "name": "GitHub Diff Filter Plus",
   "version": "0.1.0",
   "description": "Multi-select file type filters for GitHub PRs. Apply all at once.",
+  "icons": {
+    "16": "icons/GithubDiffFilterPlus_icon_16.png",
+    "32": "icons/GithubDiffFilterPlus_icon_32.png",
+    "48": "icons/GithubDiffFilterPlus_icon_48.png",
+    "128": "icons/GithubDiffFilterPlus_icon_128.png"
+  },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "GitHub Diff Filter Plus"
+    "default_title": "GitHub Diff Filter Plus",
+    "default_icon": {
+      "16": "icons/GithubDiffFilterPlus_icon_16.png",
+      "32": "icons/GithubDiffFilterPlus_icon_32.png",
+      "48": "icons/GithubDiffFilterPlus_icon_48.png"
+    }
   },
   "permissions": ["storage"],
   "host_permissions": ["https://github.com/*"],
