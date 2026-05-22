@@ -14,10 +14,13 @@
 //   * Settings are cached in memory and kept in sync via
 //     chrome.storage.onChanged so the click interceptor can decide
 //     synchronously.
-//   * Remember-last works primarily by rewriting the href of PR tab links
-//     before Turbo navigates: one SPA navigation lands directly on the
-//     filtered URL — no double-load, no flash. A fallback runs on page
-//     load events for the cases where the user did not click a link.
+//   * Remember-last intercepts link clicks at window level in capture
+//     phase, then preventDefault + stopImmediatePropagation to stop
+//     GitHub's Next.js router from also navigating in parallel. We then
+//     do location.href to the filtered URL. One navigation, no
+//     intermediate unfiltered render. A fallback maybeApplyRemembered
+//     covers the cases where the user did not click a link (browser
+//     back/forward, URL bar entry).
 
 (() => {
   'use strict';

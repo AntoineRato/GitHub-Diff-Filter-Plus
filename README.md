@@ -27,6 +27,15 @@ popup.css         # Settings popup styles
 icons/            # Extension icons (see icons/README.md)
 ```
 
+## Privacy
+
+This extension collects, transmits, and shares **no** personal data. The only
+thing it persists (locally, via `chrome.storage.sync`) is your "Remember last
+selection" preference and, if enabled, the list of extensions you last
+filtered on. Nothing ever leaves your browser.
+
+Full policy: [PRIVACY.md](./PRIVACY.md)
+
 ## License
 
 [MIT](./LICENSE)
